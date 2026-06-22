@@ -1,8 +1,16 @@
 use crate::{Axis, Button, Result, backend::GamepadTrait};
 
-pub struct Gamepad(pub(crate) Box<dyn GamepadTrait>);
+pub struct Gamepad(Box<dyn GamepadTrait>);
 
 impl Gamepad {
+	pub fn from_backend_gamepad(gamepad: impl GamepadTrait + 'static) -> Self {
+		Self(Box::new(gamepad))
+	}
+
+	pub fn from_backend_gamepad_boxed(gamepad: Box<dyn GamepadTrait>) -> Self {
+		Self(gamepad)
+	}
+
 	pub fn name(&self) -> Result<String> {
 		self.0.name()
 	}
