@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::time::Duration;
 
-use spite::{Gamepad, gamepads};
+use spite::backend::wgi::WgiBackend;
+use spite::{Axis, Button, Gamepad, GamepadManager};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -10,6 +11,7 @@ use winit::window::{Window, WindowId};
 #[derive(Default)]
 struct App {
 	window: Option<Window>,
+	gamepad_manager: GamepadManager<WgiBackend>,
 	gamepad: Option<Gamepad>,
 }
 
@@ -29,14 +31,13 @@ impl ApplicationHandler for App {
 			}
 			WindowEvent::RedrawRequested => {
 				if self.gamepad.is_none() {
-					let mut gamepads = gamepads();
+					let mut gamepads = self.gamepad_manager.gamepads().unwrap();
 					if let Some(gamepad) = gamepads.pop() {
 						self.gamepad = Some(gamepad);
 					}
 				}
 				if let Some(gamepad) = &self.gamepad {
-					print!("\x1B[2J\x1B[1;1H");
-					println!("{:#?}", gamepad.read());
+					println!("{}", gamepad.button(Button::North));
 					std::thread::sleep(Duration::from_millis(50));
 				}
 				self.window.as_ref().unwrap().request_redraw();
