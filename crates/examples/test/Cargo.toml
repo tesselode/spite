@@ -1,0 +1,9 @@
+[package]
+name = "example-test"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+spite = { path = "../../spite" }
+winit = "0.30.13"
