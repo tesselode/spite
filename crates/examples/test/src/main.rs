@@ -46,11 +46,15 @@ impl ApplicationHandler for App {
 					}
 				}
 				if let Some(gamepad) = &self.gamepad {
-					println!("{}", gamepad.button(Button::North));
+					println!("{}, {}", gamepad.button(Button::North), gamepad.connected());
 					while let Some(event) = self.gamepad_manager.pop_event() {
 						match event {
-							spite::Event::GamepadAdded(gamepad) => println!("gamepad added"),
-							spite::Event::GamepadRemoved(gamepad) => println!("gamepad removed"),
+							spite::Event::GamepadAdded(gamepad) => {
+								println!("added: {}", gamepad.id().unwrap())
+							}
+							spite::Event::GamepadRemoved(gamepad) => {
+								println!("removed: {}", gamepad.id().unwrap())
+							}
 						}
 					}
 					std::thread::sleep(Duration::from_millis(50));

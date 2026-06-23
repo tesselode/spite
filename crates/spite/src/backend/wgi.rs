@@ -1,78 +1,102 @@
 use std::{
-	collections::VecDeque,
+	collections::{HashMap, VecDeque},
 	sync::{Arc, Mutex},
 };
 
-use windows::{
-	Foundation::EventHandler,
-	Gaming::Input::{Gamepad as WgiGamepad, GamepadButtons, RawGameController},
-	core::Ref,
-};
+use windows::{Foundation::EventHandler, Gaming::Input::RawGameController, core::Ref};
 
 use crate::{
-	Axis, Button, Error, Gamepad, Result,
-	backend::{Backend, GamepadTrait},
-	event::Event,
+	Error, Event, Gamepad, Result,
+	backend::{Backend, wgi::gamepad::WgiBackendGamepad},
 };
 
+mod gamepad;
+
 pub struct WgiBackend {
+	gamepads: Arc<Mutex<HashMap<String, WgiBackendGamepad>>>,
 	event_queue: Arc<Mutex<VecDeque<Event>>>,
-	gamepad_added_event_handler_token: i64,
-	gamepad_removed_event_handler_token: i64,
+	added_token: i64,
+	removed_token: i64,
 }
 
 impl WgiBackend {
 	pub fn new() -> Result<Self> {
+		let gamepads = Arc::new(Mutex::new(HashMap::<String, WgiBackendGamepad>::new()));
 		let event_queue = Arc::new(Mutex::new(VecDeque::new()));
 
+		let gamepads_clone = gamepads.clone();
 		let event_queue_clone = event_queue.clone();
-		let gamepad_added_event_handler =
-			EventHandler::new(move |_, gamepad: Ref<'_, WgiGamepad>| {
-				let Some(gamepad) = gamepad.as_ref() else {
-					return Ok(());
+		let added_token = RawGameController::RawGameControllerAdded(&EventHandler::new(
+			move |_, raw_game_controller: Ref<'_, RawGameController>| {
+				let raw_game_controller = raw_game_controller.unwrap().clone();
+				let id = raw_game_controller.NonRoamableId()?.to_string();
+				let mut gamepads = gamepads_clone.lock().unwrap();
+				let backend_gamepad = if let Some(backend_gamepad) = gamepads.get(&id) {
+					// if the gamepad with this ID is already known, update its connection state
+					backend_gamepad.set_connected(true);
+					backend_gamepad.update_raw_game_controller(raw_game_controller)?;
+					backend_gamepad.clone()
+				} else {
+					// otherwise, check if this raw controller is a gamepad...
+					let Ok(backend_gamepad) = WgiBackendGamepad::new(raw_game_controller) else {
+						return Ok(());
+					};
+					// ...and if it is, add it
+					gamepads.insert(id, backend_gamepad.clone());
+					backend_gamepad
 				};
-				let mut event_queue = event_queue_clone.lock().unwrap();
-				let gamepad = Gamepad::from_backend_gamepad(gamepad.clone());
-				let event = Event::GamepadAdded(gamepad);
-				event_queue.push_back(event);
+				event_queue_clone
+					.lock()
+					.unwrap()
+					.push_back(Event::GamepadAdded(Gamepad::from_gamepad_trait(
+						backend_gamepad,
+					)));
 				Ok(())
-			});
-		let gamepad_added_event_handler_token =
-			WgiGamepad::GamepadAdded(&gamepad_added_event_handler)
-				.map_err(|err| Error::Other(err.message()))?;
+			},
+		))
+		.map_err(|err| Error::Other(err.message()))?;
 
+		let gamepads_clone = gamepads.clone();
 		let event_queue_clone = event_queue.clone();
-		let gamepad_removed_event_handler =
-			EventHandler::new(move |_, gamepad: Ref<'_, WgiGamepad>| {
-				let Some(gamepad) = gamepad.as_ref() else {
+		let removed_token = RawGameController::RawGameControllerRemoved(&EventHandler::new(
+			move |_, raw_game_controller: Ref<'_, RawGameController>| {
+				// if the gamepad with this ID is already known, mark it as disconnected
+				// and emit a GamepadRemoved event
+				let raw_game_controller = raw_game_controller.unwrap().clone();
+				let id = raw_game_controller.NonRoamableId()?.to_string();
+				let gamepads = gamepads_clone.lock().unwrap();
+				let Some(backend_gamepad) = gamepads.get(&id) else {
 					return Ok(());
 				};
-				let mut event_queue = event_queue_clone.lock().unwrap();
-				let gamepad = Gamepad::from_backend_gamepad(gamepad.clone());
-				let event = Event::GamepadRemoved(gamepad);
-				event_queue.push_back(event);
+				backend_gamepad.set_connected(false);
+				event_queue_clone
+					.lock()
+					.unwrap()
+					.push_back(Event::GamepadRemoved(Gamepad::from_gamepad_trait(
+						backend_gamepad.clone(),
+					)));
 				Ok(())
-			});
-		let gamepad_removed_event_handler_token =
-			WgiGamepad::GamepadRemoved(&gamepad_removed_event_handler)
-				.map_err(|err| Error::Other(err.message()))?;
+			},
+		))
+		.map_err(|err| Error::Other(err.message()))?;
 
 		Ok(Self {
+			gamepads,
 			event_queue,
-			gamepad_added_event_handler_token,
-			gamepad_removed_event_handler_token,
+			added_token,
+			removed_token,
 		})
 	}
 }
 
 impl Backend for WgiBackend {
-	type Gamepad = WgiGamepad;
-
-	fn gamepads(&self) -> Result<Vec<Box<dyn GamepadTrait>>> {
-		Ok(WgiGamepad::Gamepads()
-			.map_err(|err| Error::Other(err.message()))?
-			.into_iter()
-			.map(|gamepad| Box::new(gamepad) as Box<dyn GamepadTrait>)
+	fn gamepads(&self) -> Result<Vec<Gamepad>> {
+		Ok(self
+			.gamepads
+			.lock()
+			.unwrap()
+			.values()
+			.map(|gamepad| Gamepad::from_gamepad_trait(gamepad.clone()))
 			.collect())
 	}
 
@@ -83,49 +107,7 @@ impl Backend for WgiBackend {
 
 impl Drop for WgiBackend {
 	fn drop(&mut self) {
-		WgiGamepad::RemoveGamepadAdded(self.gamepad_added_event_handler_token).ok();
-		WgiGamepad::RemoveGamepadRemoved(self.gamepad_removed_event_handler_token).ok();
-	}
-}
-
-impl GamepadTrait for WgiGamepad {
-	fn name(&self) -> Result<String> {
-		let raw = RawGameController::FromGameController(self)
-			.map_err(|err| Error::Other(err.message()))?;
-		raw.DisplayName()
-			.map(|hstring| hstring.to_string())
-			.map_err(|err| Error::Other(err.message()))
-	}
-
-	fn axis(&self, axis: Axis) -> f32 {
-		let current = self.GetCurrentReading().unwrap();
-		match axis {
-			Axis::LeftStickX => current.LeftThumbstickX as f32,
-			Axis::LeftStickY => current.LeftThumbstickY as f32,
-			Axis::RightStickX => current.RightThumbstickX as f32,
-			Axis::RightStickY => current.RightThumbstickY as f32,
-			Axis::LeftTrigger => current.LeftTrigger as f32,
-			Axis::RightTrigger => current.RightTrigger as f32,
-		}
-	}
-
-	fn button(&self, button: Button) -> bool {
-		let current = self.GetCurrentReading().unwrap();
-		current.Buttons.contains(match button {
-			Button::North => GamepadButtons::Y,
-			Button::South => GamepadButtons::A,
-			Button::West => GamepadButtons::X,
-			Button::East => GamepadButtons::B,
-			Button::DpadUp => GamepadButtons::DPadUp,
-			Button::DpadDown => GamepadButtons::DPadDown,
-			Button::DpadLeft => GamepadButtons::DPadLeft,
-			Button::DpadRight => GamepadButtons::DPadRight,
-			Button::LeftShoulder => GamepadButtons::LeftShoulder,
-			Button::RightShoulder => GamepadButtons::RightShoulder,
-			Button::LeftStick => GamepadButtons::LeftThumbstick,
-			Button::RightStick => GamepadButtons::RightThumbstick,
-			Button::Back => GamepadButtons::View,
-			Button::Menu => GamepadButtons::Menu,
-		})
+		RawGameController::RemoveRawGameControllerAdded(self.added_token).ok();
+		RawGameController::RemoveRawGameControllerRemoved(self.removed_token).ok();
 	}
 }

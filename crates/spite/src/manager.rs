@@ -11,12 +11,7 @@ impl<B: Backend> GamepadManager<B> {
 	}
 
 	pub fn gamepads(&self) -> Result<Vec<Gamepad>> {
-		Ok(self
-			.backend
-			.gamepads()?
-			.drain(..)
-			.map(Gamepad::from_backend_gamepad_boxed)
-			.collect())
+		Ok(self.backend.gamepads()?.drain(..).collect())
 	}
 
 	pub fn pop_event(&self) -> Option<Event> {
