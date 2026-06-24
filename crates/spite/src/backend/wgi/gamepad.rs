@@ -1,8 +1,10 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use windows::Gaming::Input::{Gamepad as WgiGamepad, GamepadButtons, RawGameController};
+use windows::Gaming::Input::{
+	Gamepad as WgiGamepad, GamepadButtons, GamepadVibration, RawGameController,
+};
 
-use crate::{Axis, Button, Error, Result, backend::GamepadTrait};
+use crate::{Axis, Button, Error, Result, Vibration, backend::GamepadTrait};
 
 #[derive(Debug, Clone)]
 pub struct WgiBackendGamepad(Arc<Mutex<WgiBackendGamepadInner>>);
@@ -65,15 +67,15 @@ impl GamepadTrait for WgiBackendGamepad {
 		self.inner().connected
 	}
 
-	fn axis(&self, axis: Axis) -> f32 {
+	fn axis(&self, axis: Axis) -> f64 {
 		let current = self.inner().wgi_gamepad.GetCurrentReading().unwrap();
 		match axis {
-			Axis::LeftStickX => current.LeftThumbstickX as f32,
-			Axis::LeftStickY => current.LeftThumbstickY as f32,
-			Axis::RightStickX => current.RightThumbstickX as f32,
-			Axis::RightStickY => current.RightThumbstickY as f32,
-			Axis::LeftTrigger => current.LeftTrigger as f32,
-			Axis::RightTrigger => current.RightTrigger as f32,
+			Axis::LeftStickX => current.LeftThumbstickX,
+			Axis::LeftStickY => current.LeftThumbstickY,
+			Axis::RightStickX => current.RightThumbstickX,
+			Axis::RightStickY => current.RightThumbstickY,
+			Axis::LeftTrigger => current.LeftTrigger,
+			Axis::RightTrigger => current.RightTrigger,
 		}
 	}
 
@@ -95,6 +97,31 @@ impl GamepadTrait for WgiBackendGamepad {
 			Button::Back => GamepadButtons::View,
 			Button::Menu => GamepadButtons::Menu,
 		})
+	}
+
+	fn vibration(&self) -> Vibration {
+		self.inner()
+			.wgi_gamepad
+			.Vibration()
+			.map(|vibration| Vibration {
+				left: vibration.LeftMotor,
+				right: vibration.RightMotor,
+				left_trigger: vibration.LeftTrigger,
+				right_trigger: vibration.RightTrigger,
+			})
+			.unwrap_or_default()
+	}
+
+	fn set_vibration(&self, vibration: Vibration) {
+		self.inner()
+			.wgi_gamepad
+			.SetVibration(GamepadVibration {
+				LeftMotor: vibration.left,
+				RightMotor: vibration.right,
+				LeftTrigger: vibration.left_trigger,
+				RightTrigger: vibration.right_trigger,
+			})
+			.unwrap();
 	}
 }
 

@@ -2,7 +2,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use spite::backend::wgi::WgiBackend;
-use spite::{Button, Gamepad, GamepadManager};
+use spite::{Axis, Button, Gamepad, GamepadManager, Vibration};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -46,7 +46,13 @@ impl ApplicationHandler for App {
 					}
 				}
 				if let Some(gamepad) = &self.gamepad {
-					println!("{}, {}", gamepad.button(Button::North), gamepad.connected());
+					gamepad.set_vibration(Vibration {
+						// left: gamepad.axis(Axis::LeftTrigger),
+						// right: gamepad.axis(Axis::RightTrigger),
+						left_trigger: gamepad.axis(Axis::LeftTrigger),
+						right_trigger: gamepad.axis(Axis::RightTrigger),
+						..Default::default()
+					});
 					while let Some(event) = self.gamepad_manager.pop_event() {
 						match event {
 							spite::Event::GamepadAdded(gamepad) => {

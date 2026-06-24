@@ -1,7 +1,7 @@
 #[cfg(windows)]
 pub mod wgi;
 
-use crate::{Gamepad, Result, axis::Axis, button::Button, event::Event};
+use crate::{Gamepad, Result, Vibration, axis::Axis, button::Button, event::Event};
 
 pub trait Backend {
 	fn gamepads(&self) -> Result<Vec<Gamepad>>;
@@ -16,7 +16,11 @@ pub trait GamepadTrait: Send {
 
 	fn connected(&self) -> bool;
 
-	fn axis(&self, axis: Axis) -> f32;
+	fn axis(&self, axis: Axis) -> f64;
 
 	fn button(&self, button: Button) -> bool;
+
+	fn vibration(&self) -> Vibration;
+
+	fn set_vibration(&self, vibration: Vibration);
 }
